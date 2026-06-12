@@ -53,6 +53,40 @@ pub struct PkgSearchRequest {
     pub keyword: String,
 }
 
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct HttpRequest {
+    #[schemars(
+        description = "The URL to request (required, must include scheme http:// or https://)"
+    )]
+    pub url: String,
+    #[schemars(
+        description = "HTTP method: GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS (default: GET)"
+    )]
+    pub method: Option<String>,
+    #[schemars(
+        description = "HTTP headers as key-value pairs, e.g. {\"Content-Type\": \"application/json\", \"Authorization\": \"Bearer xxx\"}"
+    )]
+    pub headers: Option<std::collections::HashMap<String, String>>,
+    #[schemars(description = "Request body (for POST/PUT/PATCH)")]
+    pub body: Option<String>,
+    #[schemars(description = "Timeout in seconds (default 30, max 120)")]
+    pub timeout: Option<u64>,
+    #[schemars(description = "Follow HTTP redirects (default: true)")]
+    pub follow_redirects: Option<bool>,
+    #[schemars(description = "Username for basic auth (format: user:password)")]
+    pub basic_auth: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct CurlArgsRequest {
+    #[schemars(
+        description = "Raw curl command line arguments, e.g. \"-X POST -H 'Content-Type: application/json' -d '{\"key\":\"value\"}' https://api.example.com\""
+    )]
+    pub args: String,
+    #[schemars(description = "Timeout in seconds (default 30, max 120)")]
+    pub timeout: Option<u64>,
+}
+
 #[derive(Clone)]
 pub struct AlpineShell {
     log_store: Arc<LogStore>,
@@ -289,6 +323,94 @@ impl AlpineShell {
             id: 0,
             time: chrono::Utc::now().to_rfc3339(),
             command: format!("[node]\n{}", req.code),
+            stdout: stdout_str,
+            stderr: stderr_str,
+            exit_code,
+            duration_ms,
+        });
+
+        Ok(result)
+    }
+
+    #[tool(
+        description = "Make an HTTP request using curl. Supports all HTTP methods, custom headers, request body, basic auth, and redirects. Returns response status, headers, and body. Use this for API calls, web scraping, or any HTTP interaction."
+    )]
+    async fn http_request(
+        &self,
+        Parameters(req): Parameters<HttpRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        let start = Instant::now();
+        let timeout_secs = req.timeout.unwrap_or(30).min(120);
+        let method = req.method.as_deref().unwrap_or("GET").to_uppercase();
+
+        let mut cmd = tokio::process::Command::new("curl");
+        cmd.arg("-sS")
+            .arg("-i")
+            .arg("-X")
+            .arg(&method)
+            .arg("--max-time")
+            .arg(timeout_secs.to_string());
+
+        if req.follow_redirects.unwrap_or(true) {
+            cmd.arg("-L");
+        }
+
+        if let Some(auth) = &req.basic_auth {
+            cmd.arg("-u").arg(auth);
+        }
+
+        if let Some(headers) = &req.headers {
+            for (k, v) in headers {
+                cmd.arg("-H").arg(format!("{k}: {v}"));
+            }
+        }
+
+        if let Some(body) = &req.body {
+            cmd.arg("-d").arg(body);
+        }
+
+        cmd.arg(&req.url);
+
+        let (exit_code, stdout_str, stderr_str, result) =
+            run_with_output(cmd, Duration::from_secs(timeout_secs)).await;
+        let duration_ms = start.elapsed().as_millis() as u64;
+
+        let summary = format!("[http {}] {}", method, req.url);
+        self.log_store.push(LogEntry {
+            id: 0,
+            time: chrono::Utc::now().to_rfc3339(),
+            command: summary,
+            stdout: stdout_str,
+            stderr: stderr_str,
+            exit_code,
+            duration_ms,
+        });
+
+        Ok(result)
+    }
+
+    #[tool(
+        description = "Execute arbitrary curl command line arguments. Use this for advanced curl features (cookies, multipart uploads, client certificates, etc.) not covered by the structured http_request tool. Input is the raw curl arguments string (without the leading 'curl' command itself)."
+    )]
+    async fn curl(
+        &self,
+        Parameters(req): Parameters<CurlArgsRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        let start = Instant::now();
+        let timeout_secs = req.timeout.unwrap_or(30).min(120);
+
+        let full_args = format!("curl --max-time {timeout_secs} {}", req.args);
+        let mut sh_cmd = tokio::process::Command::new("/bin/sh");
+        sh_cmd.arg("-c").arg(&full_args);
+
+        let (exit_code, stdout_str, stderr_str, result) =
+            run_with_output(sh_cmd, Duration::from_secs(timeout_secs)).await;
+        let duration_ms = start.elapsed().as_millis() as u64;
+
+        self.log_store.push(LogEntry {
+            id: 0,
+            time: chrono::Utc::now().to_rfc3339(),
+            command: format!("[curl] {}", req.args),
             stdout: stdout_str,
             stderr: stderr_str,
             exit_code,
