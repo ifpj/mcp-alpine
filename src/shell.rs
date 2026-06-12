@@ -41,6 +41,18 @@ pub struct CodeRequest {
     pub timeout: Option<u64>,
 }
 
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct PkgRequest {
+    #[schemars(description = "List of package names, space-separated or as array")]
+    pub packages: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct PkgSearchRequest {
+    #[schemars(description = "Package name or keyword to search")]
+    pub keyword: String,
+}
+
 #[derive(Clone)]
 pub struct AlpineShell {
     log_store: Arc<LogStore>,
@@ -283,6 +295,131 @@ impl AlpineShell {
             duration_ms,
         });
 
+        Ok(result)
+    }
+
+    #[tool(
+        description = "Install Alpine packages using apk. Accepts a list of package names. Auto-updates repository index before install."
+    )]
+    async fn apk_install(
+        &self,
+        Parameters(req): Parameters<PkgRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        let start = Instant::now();
+        if req.packages.is_empty() {
+            return Ok(CallToolResult::error(vec![Content::text(
+                "packages list is empty",
+            )]));
+        }
+        let mut cmd = tokio::process::Command::new("apk");
+        cmd.arg("add").args(&req.packages);
+        let (exit_code, stdout_str, stderr_str, result) =
+            run_with_output(cmd, Duration::from_secs(300)).await;
+        let duration_ms = start.elapsed().as_millis() as u64;
+        self.log_store.push(LogEntry {
+            id: 0,
+            time: chrono::Utc::now().to_rfc3339(),
+            command: format!("[apk install] {}", req.packages.join(" ")),
+            stdout: stdout_str,
+            stderr: stderr_str,
+            exit_code,
+            duration_ms,
+        });
+        Ok(result)
+    }
+
+    #[tool(description = "Remove Alpine packages using apk. Accepts a list of package names.")]
+    async fn apk_remove(
+        &self,
+        Parameters(req): Parameters<PkgRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        let start = Instant::now();
+        if req.packages.is_empty() {
+            return Ok(CallToolResult::error(vec![Content::text(
+                "packages list is empty",
+            )]));
+        }
+        let mut cmd = tokio::process::Command::new("apk");
+        cmd.arg("del").args(&req.packages);
+        let (exit_code, stdout_str, stderr_str, result) =
+            run_with_output(cmd, Duration::from_secs(120)).await;
+        let duration_ms = start.elapsed().as_millis() as u64;
+        self.log_store.push(LogEntry {
+            id: 0,
+            time: chrono::Utc::now().to_rfc3339(),
+            command: format!("[apk remove] {}", req.packages.join(" ")),
+            stdout: stdout_str,
+            stderr: stderr_str,
+            exit_code,
+            duration_ms,
+        });
+        Ok(result)
+    }
+
+    #[tool(
+        description = "Search for Alpine packages using apk search. Returns matching packages with name and version."
+    )]
+    async fn apk_search(
+        &self,
+        Parameters(req): Parameters<PkgSearchRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        let start = Instant::now();
+        let mut cmd = tokio::process::Command::new("apk");
+        cmd.arg("search").arg("-v").arg(&req.keyword);
+        let (exit_code, stdout_str, stderr_str, result) =
+            run_with_output(cmd, Duration::from_secs(30)).await;
+        let duration_ms = start.elapsed().as_millis() as u64;
+        self.log_store.push(LogEntry {
+            id: 0,
+            time: chrono::Utc::now().to_rfc3339(),
+            command: format!("[apk search] {}", req.keyword),
+            stdout: stdout_str,
+            stderr: stderr_str,
+            exit_code,
+            duration_ms,
+        });
+        Ok(result)
+    }
+
+    #[tool(description = "List all installed Alpine packages using apk info.")]
+    async fn apk_list_installed(&self) -> Result<CallToolResult, McpError> {
+        let start = Instant::now();
+        let mut cmd = tokio::process::Command::new("apk");
+        cmd.arg("info").arg("-v");
+        let (exit_code, stdout_str, stderr_str, result) =
+            run_with_output(cmd, Duration::from_secs(30)).await;
+        let duration_ms = start.elapsed().as_millis() as u64;
+        self.log_store.push(LogEntry {
+            id: 0,
+            time: chrono::Utc::now().to_rfc3339(),
+            command: "[apk list-installed]".to_string(),
+            stdout: stdout_str,
+            stderr: stderr_str,
+            exit_code,
+            duration_ms,
+        });
+        Ok(result)
+    }
+
+    #[tool(
+        description = "Update Alpine package repository index using apk update. Should be run before installing new packages."
+    )]
+    async fn apk_update(&self) -> Result<CallToolResult, McpError> {
+        let start = Instant::now();
+        let mut cmd = tokio::process::Command::new("apk");
+        cmd.arg("update");
+        let (exit_code, stdout_str, stderr_str, result) =
+            run_with_output(cmd, Duration::from_secs(120)).await;
+        let duration_ms = start.elapsed().as_millis() as u64;
+        self.log_store.push(LogEntry {
+            id: 0,
+            time: chrono::Utc::now().to_rfc3339(),
+            command: "[apk update]".to_string(),
+            stdout: stdout_str,
+            stderr: stderr_str,
+            exit_code,
+            duration_ms,
+        });
         Ok(result)
     }
 }
