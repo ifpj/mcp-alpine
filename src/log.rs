@@ -38,7 +38,12 @@ impl LogStore {
     }
 
     pub fn since(&self, id: u64) -> Vec<LogEntry> {
-        self.entries.read().iter().filter(|e| e.id > id).cloned().collect()
+        self.entries
+            .read()
+            .iter()
+            .filter(|e| e.id > id)
+            .cloned()
+            .collect()
     }
 
     pub fn all(&self) -> Vec<LogEntry> {

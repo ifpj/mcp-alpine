@@ -46,7 +46,9 @@ impl AlpineShell {
         }
     }
 
-    #[tool(description = "Execute a shell command and return its output (stdout, stderr, exit code)")]
+    #[tool(
+        description = "Execute a shell command and return its output (stdout, stderr, exit code)"
+    )]
     async fn execute_command(
         &self,
         Parameters(req): Parameters<CommandRequest>,
@@ -75,9 +77,19 @@ impl AlpineShell {
                 }
                 text.push_str(&format!("\n[exit code: {}]", code));
                 if out.status.success() {
-                    (CallToolResult::success(vec![Content::text(text)]), code, stdout, stderr)
+                    (
+                        CallToolResult::success(vec![Content::text(text)]),
+                        code,
+                        stdout,
+                        stderr,
+                    )
                 } else {
-                    (CallToolResult::error(vec![Content::text(text)]), code, stdout, stderr)
+                    (
+                        CallToolResult::error(vec![Content::text(text)]),
+                        code,
+                        stdout,
+                        stderr,
+                    )
                 }
             }
             Err(e) => (
@@ -144,10 +156,20 @@ impl AlpineShell {
                         };
                         (code, so, se, r)
                     }
-                    Err(e) => (-2, String::new(), e.to_string(), CallToolResult::error(vec![Content::text(e.to_string())])),
+                    Err(e) => (
+                        -2,
+                        String::new(),
+                        e.to_string(),
+                        CallToolResult::error(vec![Content::text(e.to_string())]),
+                    ),
                 }
             }
-            Err(e) => (-3, String::new(), e.to_string(), CallToolResult::error(vec![Content::text(e.to_string())])),
+            Err(e) => (
+                -3,
+                String::new(),
+                e.to_string(),
+                CallToolResult::error(vec![Content::text(e.to_string())]),
+            ),
         };
 
         let duration_ms = start.elapsed().as_millis() as u64;
@@ -165,5 +187,7 @@ impl AlpineShell {
     }
 }
 
-#[tool_handler(instructions = "Alpine Linux shell server. Execute commands and scripts, returns stdout, stderr and exit code.")]
+#[tool_handler(
+    instructions = "Alpine Linux shell server. Execute commands and scripts, returns stdout, stderr and exit code."
+)]
 impl ServerHandler for AlpineShell {}
